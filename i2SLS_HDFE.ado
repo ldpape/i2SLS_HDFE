@@ -1,9 +1,3 @@
-clear all
-webuse womenwk
-replace wage = 0 if missing(wage)
- gen cons = 1
-cap program drop i2SLS_HDFE
-
 program define i2SLS_HDFE, eclass
 	syntax [anything] [if]  [in] [aweight pweight fweight iweight]  [, DELta(real 1) ABSorb(varlist) gmm2s Robust CLuster(varlist numeric)]
 	marksample touse
@@ -189,16 +183,3 @@ ereturn display
 	cap drop Y0_*
 	cap drop xb_hat*
 end
-tab county, gen(COUNTY)
-drop COUNTY1
-i2SLS_HDFE wage  age (education = children) ,  absorb(county ) delta(1) 
-i2SLS_ivreg2 wage age  COUNTY* (education = children)  ,  delta(1)
-
-/*
-cap program drop i2SLS_bootstrap
-program i2SLS_bootstrap, rclass
-* estimate the model
-i2SLS_HDFE wage  age  (education = married) ,  absorb(children ) delta(1) 
-end
-
-bootstrap , reps(50): i2SLS_bootstrap
