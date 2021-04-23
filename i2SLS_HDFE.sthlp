@@ -93,16 +93,8 @@ Available at SSRN: https://ssrn.com/abstract=3444996
 {marker examples}{...}
 {title:Examples}
 
-{pstd}First, we compare i2SLS_HDFE with IV-Poisson (using ivpois)
-{browse "http://www.haghish.com/statistics/stata-blog/stata-programming/download/ivpois.html":ivpois help file}.
-{p_end}
-{hline}
-{phang2}{cmd:. use "http://www.stata-press.com/data/r14/airline"}{p_end}
-{phang2}{cmd:. i2SLS_HDFE injuries (XYZowned=n) , delta(1) vce(robust)}{p_end}
-{phang2}{cmd:. ivpois injuries (XYZowned=n)}{p_end}
-{hline}
 
-{pstd} Second, we show how to test for the pattern of zeros with i2SLS. We rely on data on households' trips away from home, as used in {browse "https://www.stata.com/manuals/rivpoisson.pdf":ivpoisson manual}.
+{pstd}  We rely on data on households' trips away from home, as used in {browse "https://www.stata.com/manuals/rivpoisson.pdf":ivpoisson manual}.
 to study the effect of cost of transportation (tcost). 
 {p_end}
 {hline}
@@ -110,74 +102,7 @@ to study the effect of cost of transportation (tcost).
 {phang2}{cmd:. webuse trip }{p_end}
 {phang2}{cmd:. gen outside = trips>0 }{p_end}
 
-{phang2}{cmd:. i2SLS_HDFE trips cbd ptn worker weekend (tcost=pt) , delta(1) robust }{p_end}
-{phang2}{cmd:. i2SLS_HDFE trips cbd ptn worker weekend (tcost=pt) , delta(1000) robust  }{p_end}
-{phang2}{cmd:. ivpois trips cbd ptn worker weekend endog(tcost) exog(pt) }{p_end}
-{phang2}{cmd:. ivpoisson gmm trips cbd ptn worker weekend (tcost=pt), multiplicative}{p_end}
-
-{phang2}{cmd:. cap program drop i2SLS_bootstrap  }{p_end}
-{phang2}{cmd:. program i2SLS_bootstrap, rclass  }{p_end}
-{phang2}{cmd:. i2SLS_HDFE trips cbd ptn worker weekend (tcost=pt) , delta(1) robust  }{p_end}
-{phang2}{cmd:. scalar delta = 1  }{p_end}
-{phang2}{cmd:. *lhs of test  }{p_end}
-{phang2}{cmd:. predict xb_temp, xb  }{p_end}
-{phang2}{cmd:. gen u_hat_temp = trips*exp(-xb_temp)  }{p_end}
-{phang2}{cmd:. gen lhs_temp = log(delta+u_hat_temp) - log(delta)  }{p_end}
-{phang2}{cmd:. * rhs of test  }{p_end}
-{phang2}{cmd:. gen temp = log(trips + delta*exp(xb_temp)) - xb_temp  }{p_end}
-{phang2}{cmd:. egen c_hat_temp = mean(temp)   }{p_end}
-{phang2}{cmd:. logit outside cbd ptn worker weekend (tcost=pt) }{p_end}
-{phang2}{cmd:. predict p_hat_temp, pr  }{p_end}
-{phang2}{cmd:. gen rhs_temp = (c_hat_temp-log(delta))/p_hat_temp  }{p_end}
-{phang2}{cmd:. * run the test  }{p_end}
-{phang2}{cmd:. reg lhs_temp rhs_temp if outside, nocons   }{p_end}
-{phang2}{cmd:. matrix b = e(b)  }{p_end}
-{phang2}{cmd:. ereturn post b  }{p_end}
-{phang2}{cmd:. * drop created variables  }{p_end}
-{phang2}{cmd:. cap drop *temp  }{p_end}
-{phang2}{cmd:. end  }{p_end}
-
-{phang2}{cmd:. bootstrap lambda = _b[rhs_temp] , reps(50): i2SLS_bootstrap  }{p_end}
-{phang2}{cmd:. test lambda==1  }{p_end}
-{hline}
-
-{pstd} Third, we show how to test for the pattern of zeros with IV-Poisson.
-{p_end}
-{hline}
-
-{phang2}{cmd:.  cap program drop IVPoisson_boostrap  }{p_end}
-{phang2}{cmd:.  program IVPoisson_boostrap, rclass  }{p_end}
-{phang2}{cmd:.  * estimate the model  }{p_end}
-{phang2}{cmd:.  ivpois trips cbd ptn worker weekend endog(tcost) exog(pt)  }{p_end}
-{phang2}{cmd:.  * lhs of test   }{p_end}
-{phang2}{cmd:.  predict xb_temp, xb  }{p_end}
-{phang2}{cmd:.  gen u_hat_temp = trips*exp(-xb_temp)  }{p_end}
-{phang2}{cmd:.  egen mean_u_temp = mean(u_hat_temp)  }{p_end}
-{phang2}{cmd:. gen lhs_temp = u_hat_temp*exp(-xb_temp)  // obtain the correct residuals  }{p_end}
-{phang2}{cmd:.  * rhs of test  }{p_end}
-{phang2}{cmd:.  logit outside ivpois trips cbd ptn worker weekend pt  // use the instrument instead of the endogenous variable  }{p_end}
-{phang2}{cmd:.  predict p_hat_temp, pr  }{p_end}
-{phang2}{cmd:.  gen rhs_temp = (mean_u_temp)/p_hat_temp  }{p_end}
-{phang2}{cmd:.  * run the test  }{p_end}
-{phang2}{cmd:.  reg lhs_temp rhs_temp if outside, nocons   }{p_end}
-{phang2}{cmd:.  matrix b = e(b)  }{p_end}
-{phang2}{cmd:.  ereturn post b  }{p_end}
-{phang2}{cmd:.  * drop created variables  }{p_end}
-{phang2}{cmd:.  cap drop *temp  }{p_end}
-{phang2}{cmd:.  end  }{p_end}
- 
-{phang2}{cmd:. bootstrap lambda = _b[rhs_temp] , reps(50): IVPoisson_boostrap  }{p_end}
-{phang2}{cmd:. test lambda==1  }{p_end}
-
-
-{pstd} Fourth, you can convert your results into latex using esttab where "eps" provides the convergence criteria:
-{p_end}
-{hline}
-{phang2}{cmd:. eststo clear}{p_end}
-{phang2}{cmd:. eststo: i2SLS_HDFE trips cbd ptn worker weekend (tcost=pt) , delta(1) robust}{p_end}
-{phang2}{cmd:. eststo: i2SLS_HDFE trips cbd ptn worker weekend (tcost=pt) , delta(10) robust}{p_end}
-{phang2}{cmd:. eststo: esttab * using table_iv.tex,  scalars(delta eps) }{p_end}
-{hline}
+{phang2}{cmd:. i2SLS_HDFE trips cbd ptn worker (tcost=pt) , absorb(weekend) delta(1) robust }{p_end}
 
 {marker results}{...}
 {title:Stored results}
