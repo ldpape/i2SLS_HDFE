@@ -23,7 +23,7 @@
 
 {p 8 15 2} {cmd:i2SLS_HDFE}
 {depvar} [{indepvars}]
-{ifin} {it:{weight}} {cmd:,} [{absorb}] [{help i2SLS_HDFE##options:options}] {p_end}
+{ifin} {it:{weight}} {cmd:,} {absorb(varlist)} [{help i2SLS_HDFE##options:options}] {p_end}
 
 {marker opt_summary}{...}
 {synoptset 22 tabbed}{...}
