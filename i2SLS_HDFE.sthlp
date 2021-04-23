@@ -115,4 +115,4 @@ to study the effect of cost of transportation (tcost).
 {synopt:{cmd:e(N)}}number of observations{p_end}
 {synopt:{cmd:e(sample)}} marks the sample used for estimation {p_end}
 {synopt:{cmd:e(eps)}} sum of the absolute differences between the parameters from the last two iterations of i2SLS {p_end}
-{synopt:{cmd:e(k)}} number of iterations of iOLS{p_end}
+{synopt:{cmd:e(k)}} number of iterations of i2SLS {p_end}
