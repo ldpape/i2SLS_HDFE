@@ -1,0 +1,7 @@
+********************************************** unique.pkg
+v 1
+d i2SLS_HDFE
+d Program to run large sample i2SLS
+d Distribution-Date: 22 April 2021
+f i2SLS_HDFE.ado
+f i2SLS_HDFE.sthlp
