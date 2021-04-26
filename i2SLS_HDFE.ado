@@ -156,7 +156,7 @@ quietly ivreg2 Y0_ `indepvar'  (`endog' = `instr') [`weight'`exp'] if `touse', `
 	mata : Pz = Z*invsym(Z'*Z)*Z'
 	mata : Sigma_hat = st_matrix("Sigma") // retrouver la matrice de ivreg2
 	mata : Sigma_0 = (X'*Pz*X)*Sigma_hat*(X'*Pz*X)
-	mata : invXpPzIWX = invsym(2*X'*(Pz*IW+IW*Pz)*X)
+	mata : invXpPzIWX = invsym(0.5*X'*(Pz*IW+IW*Pz)*X)
 	mata : Sigma_tild = invXpPzIWX*Sigma_0*invXpPzIWX
    mata: st_matrix("Sigma_tild", Sigma_tild) // used in practice
    	matrix Sigma_tild = Sigma_tild*(`e(Fdf2))')/(`N_DF') // adjust DOF
