@@ -144,8 +144,8 @@ quietly ivreg2 Y0_ `indepvar'  (`endog' = `instr') [`weight'`exp'] if `touse', `
 	*gen `cste' = 1
 	tempvar ui_bis
 	gen `ui_bis' = 1 - `delta'/(`delta' + `ui')
-	local var_list M0_* E0_* // `cste'
-	local instr_list M0_* Z0_* // `cste'
+	local var_list E0_* M0_*  // `cste'
+	local instr_list  Z0_*  M0_* // `cste'
 	mata : X=.
 	mata : Z=.
 	mata : IW=.
