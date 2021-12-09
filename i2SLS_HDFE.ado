@@ -53,7 +53,7 @@ program define i2SLS_HDFE, eclass
 	local eps = 1000	
 	*** ItÃ©rations iOLS
 	_dots 0
-	while (`k' < 1000 & `eps' > 1e-15) {
+	while (`k' < 2000 & `eps' > 1e-10) {
 		matrix beta_initial = beta_new
 			* calcul de constante
 		tempvar temp1
