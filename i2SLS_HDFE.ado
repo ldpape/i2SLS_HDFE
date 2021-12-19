@@ -152,13 +152,21 @@ quietly ivreg2 Y0_ `indepvar'  (`endog' = `instr') [`weight'`exp'] if `touse', `
 	mata : st_view(X,.,"`var_list'")
 	mata : st_view(Z,.,"`instr_list'")
 	mata : st_view(IW,.,"`ui_bis'")
+	mata : W = (cross(X,Z)*invsym(cross(Z,Z))*cross(Z,X))
+	mata : Sigma_hat = st_matrix("Sigma")
+	mata : Sigma_0 = W*Sigma_hat*W
+	mata : invXpPzIWX = invsym(0.5*cross(X,Z)*invsym(cross(Z,Z))*(Z':*IW')*X+ 0.5*X'*(IW:*Z)*invsym(cross(Z,Z))*cross(Z,X))
+	mata : Sigma_tild = invXpPzIWX*Sigma_0*invXpPzIWX
+	
+	/* Does not work with large sample 
 	mata : IW = diag(IW) // preparation 
 	mata : Pz = Z*invsym(Z'*Z)*Z'
 	mata : Sigma_hat = st_matrix("Sigma") // retrouver la matrice de ivreg2
 	mata : Sigma_0 = (X'*Pz*X)*Sigma_hat*(X'*Pz*X)
 	mata : invXpPzIWX = invsym(0.5*X'*(Pz*IW+IW*Pz)*X)
-	mata : Sigma_tild = invXpPzIWX*Sigma_0*invXpPzIWX
-   mata: st_matrix("Sigma_tild", Sigma_tild) // used in practice
+	*/
+	
+	mata: st_matrix("Sigma_tild", Sigma_tild) // used in practice
    	matrix Sigma_tild = Sigma_tild*(`e(Fdf2))')/(`N_DF') // adjust DOF
 	*** Stocker les rÃ©sultats dans une matrice
 	local names : colnames e(b)
