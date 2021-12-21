@@ -100,9 +100,9 @@ program define i2SLS_HDFE, eclass
 		* Update d'un nouveau y_tild et regression avec le nouvel y_tild
 	mata: y_tilde = log(y + `delta'*exp(xb_hat)) :-mean(log(y + `delta'*exp(xb_hat))- xb_hat)
 		* Update d'un nouveau y_tild et regression avec le nouvel y_tild
-	cap drop y_tild 
-	quietly mata: st_addvar("double", "y_tild")
-	mata: st_store(.,"y_tild",y_tilde)
+	cap drop `y_tild' 
+	quietly mata: st_addvar("double", "`y_tild'")
+	mata: st_store(.,"`y_tild'",y_tilde)
 	cap drop Y0_
     quietly hdfe `y_tild' [`weight'] , absorb(`absorb') generate(Y0_)
 	mata : st_view(Py_tilde,.,"Y0_")
