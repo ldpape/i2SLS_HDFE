@@ -1,4 +1,4 @@
-program define i2SLS_HDFE2, eclass
+program define i2SLS_HDFE, eclass
 	syntax [anything] [if] [in] [aweight pweight fweight iweight]  [, DELta(real 1) ABSorb(varlist) LIMit(real 0.00001) MAXimum(real 1000) Robust CLuster(varlist numeric) ]
 		marksample touse
 	preserve 
