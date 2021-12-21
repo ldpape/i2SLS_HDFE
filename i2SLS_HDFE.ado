@@ -43,9 +43,9 @@ program define i2SLS_HDFE, eclass
 	cap drop Y0_*
 	cap drop xb_hat*
 	if "`indepvar'"=="" { // case with no X , only FE 
+	quietly hdfe `endog' [`weight'] , absorb(`absorb') generate(E0_)
 	tempname DF_ADAPT
 	scalar `DF_ADAPT' = e(df_a) //- e(N_hdfe)
-	quietly hdfe `endog' [`weight'] , absorb(`absorb') generate(E0_)
 	quietly hdfe `instr' [`weight'] , absorb(`absorb') generate(Z0_)
 	tempvar y_tild  
 	quietly gen `y_tild' = log(`depvar' + 1)
