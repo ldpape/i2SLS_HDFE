@@ -1,110 +1,127 @@
-program define i2SLS_HDFE, eclass
-	syntax [anything] [if]  [in] [aweight pweight fweight iweight]  [, DELta(real 1) ABSorb(varlist) gmm2s Robust CLuster(varlist numeric)]
-	marksample touse
-	
-	if "`gmm2s'" !="" {
-		local opt0 = "`gmm2s' "
-	}
+program define i2SLS_HDFE2, eclass
+	syntax [anything] [if] [in] [aweight pweight fweight iweight]  [, DELta(real 1) ABSorb(varlist) LIMit(real 0.00001) MAXimum(real 1000) Robust CLuster(varlist numeric) ]
+		marksample touse
+	preserve 
+	quietly keep if `touse'
 	if  "`robust'" !="" {
 		local opt1  = "`robust' "
 	}
 	if "`cluster'" !="" {
 		local opt2 = "cluster(`cluster') "
 	}
-	local option = "`opt0'`opt1'`opt2'"
-	
+	local option = "`opt1'`opt2'"
+	*** Obtain lists of variables 
 	local list_var `anything'
-	* get depvar and indepvar
 	gettoken depvar list_var : list_var
+	if (strpos("`list_var'","(")==2){  // anormal case : no X, only Z 
+	local list_var: subinstr local list_var "(" "", all
+	local indepvar 
+	gettoken endog list_var : list_var, bind
+	gettoken endog instr_temp : endog , p("=")
+	local list_var: subinstr local list_var "=" "", all
+	gettoken instr list_var : list_var, bind
+	}
+	else{  // normal case : X exists 
 	gettoken indepvar list_var : list_var, p("(")
-    * get endogenous variables and instruments
 	gettoken endog list_var : list_var, bind
 	gettoken endog endog : endog, p("(")
-    gettoken endog instr_temp : endog , p("=")
-    gettoken equalsign instr_temp : instr_temp , p("=")
+	gettoken endog instr_temp : endog , p("=")
+	gettoken equalsign instr_temp : instr_temp , p("=")
 	gettoken instr instr_temp : instr_temp, p(")")
-	*di `"`indepvar'"'
-	*di `"`indepvar'"'
-	*di `"`endog'"'
-	*di `"`instr'"'
-	
-		*** FWL Theorem Application
+	}		
+	*** Initialisation de la boucle
+	tempvar cste
+	gen `cste' = 1
+	** drop collinear variables
+    _rmcoll `indepvar', forcedrop 
+	local var_list `endog' `r(varlist)' 
+	local instr_list `instr' `r(varlist)'
+	*** FWL Theorem Application
 	cap drop Z0_*
 	cap drop E0_*
 	cap drop M0_*
-	cap drop fe
 	cap drop Y0_*
 	cap drop xb_hat*
-	quietly hdfe `indepvar'   [`weight'] , absorb(`absorb') generate(M0_)
+	if "`indepvar'"=="" { // case with no X , only FE 
+	tempname DF_ADAPT
+	scalar `DF_ADAPT' = e(df_a) //- e(N_hdfe)
+	quietly hdfe `endog' [`weight'] , absorb(`absorb') generate(E0_)
+	quietly hdfe `instr' [`weight'] , absorb(`absorb') generate(Z0_)
+	tempvar y_tild  
+	quietly gen `y_tild' = log(`depvar' + 1)
+	quietly	hdfe `y_tild' [`weight'] , absorb(`absorb') generate(Y0_) 
+	mata : X=.
+	mata : PX=.
+	mata : PZ=.
+	mata : y_tilde =.
+	mata : Py_tilde =.
+	mata : y =.
+	mata : st_view(X,.,"`endog'")
+	mata : st_view(PX,.,"E0_*")
+	mata : st_view(PZ,.,"Z0_*")
+	mata : st_view(y_tilde,.,"`y_tild'")
+	mata : st_view(Py_tilde,.,"Y0_")
+	mata : st_view(y,.,"`depvar'")	
+	}
+	else { // standard case with both X and FE
+	quietly hdfe `r(varlist)' [`weight'] , absorb(`absorb') generate(M0_)
 	tempname DF_ADAPT
 	scalar `DF_ADAPT' = e(df_a) //- e(N_hdfe)
 	quietly hdfe `endog'  [`weight'] , absorb(`absorb') generate(E0_)
 	quietly hdfe `instr'  [`weight'] , absorb(`absorb') generate(Z0_)
-	*** Initialisation de la boucle
-	tempvar fe
-	quietly gen fe = 0
 	tempvar y_tild  
-	quietly gen `y_tild' = log(`depvar' + `delta'*exp(fe))
+	quietly gen `y_tild' = log(`depvar' + 1)
 	quietly	hdfe `y_tild' [`weight'] , absorb(`absorb') generate(Y0_) 
-	quietly ivreg2 Y0_  M0_*  (E0_* = Z0_*) [`weight'`exp'] if `touse' , `option' noconstant
-	matrix beta_new = e(b)
-	quietly predict xb_hat,xb
+	mata : X=.
+	mata : PX=.
+	mata : PZ=.
+	mata : y_tilde =.
+	mata : Py_tilde =.
+	mata : y =.
+	mata : st_view(X,.,"`var_list'")
+	mata : st_view(PX,.,"E0_* M0_*")
+	mata : st_view(PZ,.,"Z0_* M0_*")
+	mata : st_view(y_tilde,.,"`y_tild'")
+	mata : st_view(Py_tilde,.,"Y0_")
+	mata : st_view(y,.,"`depvar'")	
+	}
+	* prepare  future inversions 
+	mata : invPzX = invsym(cross(PX,PZ)*invsym(cross(PZ,PZ))*cross(PZ,PX))*cross(PX,PZ)*invsym(cross(PZ,PZ))
+	mata : beta_initial = invPzX*cross(PZ,Py_tilde)
 	local k = 0
 	local eps = 1000	
-	*** ItÃ©rations iOLS
+	*** Iterations iOLS
 	_dots 0
-	while (`k' < 2000 & `eps' > 1e-7) {
-		matrix beta_initial = beta_new
-			* calcul de constante
-		tempvar temp1
-	quietly	gen `temp1' = `depvar'*exp(-xb_hat)
-	quietly sum `temp1' if e(sample)
-	
-	tempname phi_hat
-		scalar `phi_hat' = log(`r(mean)')
-		cap drop `temp1'
-		* Calcul de c_hat
-		
-		tempvar temp2
-		quietly	gen `temp2' = log(`depvar' + `delta'*exp(`phi_hat' + xb_hat)) - xb_hat - `phi_hat'
-		quietly sum `temp2' if e(sample)
-		tempname c_hat
-		scalar `c_hat' = `r(mean)'
+	while ((`k' < `maximum') & (`eps' > `limit' )) {
+	mata: xb_hat_M = PX*beta_initial 
+	mata: xb_hat_N = X*beta_initial
+	mata: fe = y_tilde - Py_tilde + xb_hat_M - xb_hat_N
+	mata: xb_hat = xb_hat_N + fe		
 		* Update d'un nouveau y_tild et regression avec le nouvel y_tild
-		
-		quietly replace `y_tild' = log(`depvar' + `delta'*exp(xb_hat)) - `c_hat'
-		cap drop Y0_
-	    quietly hdfe `y_tild' [`weight'] , absorb(`absorb') generate(Y0_) 
+	mata: y_tilde = log(y + `delta'*exp(xb_hat)) :-mean(log(y + `delta'*exp(xb_hat))- xb_hat)
 		* Update d'un nouveau y_tild et regression avec le nouvel y_tild
-	quietly	 ivreg2 Y0_  M0_*  ( E0_* = Z0_*) [`weight'`exp'] if `touse', `option' noconstant 
-			
-	cap drop xb_hat_M xb_hat_N
-	quietly predict xb_hat_M, xb		// predict with demeaned
-	foreach var in `indepvar' { // rename variables for prediction
-	quietly	rename M0_`var' TEMP`var'
-	quietly	rename `var' M0_`var'
-	}
-	quietly predict xb_hat_N, xb // predict without demeaned
-	foreach var in `indepvar' { // rename variables back to normal
-	quietly	rename M0_`var' `var'
-	quietly	rename TEMP`var' M0_`var'
-	}
-	quietly	replace fe = `y_tild'- Y0_ + xb_hat_M - xb_hat_N
-	quietly	replace xb_hat = xb_hat_N + fe
-		matrix beta_new = e(b)
-		* DiffÃ©rence entre les anciens betas et les nouveaux betas
-		matrix diff = beta_initial - beta_new
-		mata : st_matrix("abs_diff", abs(st_matrix("diff")))
-		mata : st_matrix("abs_diff2", st_matrix("abs_diff"):*st_matrix("abs_diff"))
-		mata : st_matrix("criteria", rowsum(st_matrix("abs_diff2"))/cols(st_matrix("abs_diff2")))
-		local eps = criteria[1,1]
-		local k = `k'+1
-		_dots `k' 0
+	cap drop y_tild 
+	quietly mata: st_addvar("double", "y_tild")
+	mata: st_store(.,"y_tild",y_tilde)
+	cap drop Y0_
+    quietly hdfe `y_tild' [`weight'] , absorb(`absorb') generate(Y0_)
+	mata : st_view(Py_tilde,.,"Y0_")
+		* 2SLS 
+	mata : beta_new = invPzX*cross(PZ,Py_tilde)
+	mata: criteria = mean(abs(beta_initial - beta_new):^(2))
+	mata: st_numscalar("eps", criteria)
+	mata: st_local("eps", strofreal(criteria))
+	mata: beta_initial = beta_new
+	local k = `k'+1
+	_dots `k' 0
 	}
 
 	*** Calcul de la bonne matrice de variance-covariance
-	* Calcul du "bon" rÃ©sidu
-	foreach var in `indepvar' {     // rename variables for last ols
+	* Calcul du "bon" residu
+	mata: ui = y:*exp(-xb_hat)
+	mata: ui = ui:/(`delta' :+ ui)
+	* Final 2SLS with ivreg2 
+		foreach var in `indepvar' {     // rename variables for last ols
 	quietly	rename `var' TEMP_`var'
 	quietly	rename M0_`var' `var'
 	}	
@@ -116,7 +133,10 @@ program define i2SLS_HDFE, eclass
 	quietly	rename `var' TEMP_`var'
 	quietly	rename E0_`var' `var'
 	}
-quietly ivreg2 Y0_ `indepvar'  (`endog' = `instr') [`weight'`exp'] if `touse', `option' noconstant 
+quietly ivreg2 Y0_ `indepvar' (`endog' = `instr') [`weight'`exp'] , `option' noconstant   // standard case with X and FE 
+if "`indepvar'"=="" {
+quietly ivreg2 Y0_ `indepvar' (`endog' = `instr') [`weight'`exp'] , `option' noconstant   // case with no X , only FE 
+}
 	foreach var in `indepvar' {      // rename variables back
 	quietly	rename `var' M0_`var'
 	quietly	rename TEMP_`var' `var'
@@ -129,44 +149,16 @@ quietly ivreg2 Y0_ `indepvar'  (`endog' = `instr') [`weight'`exp'] if `touse', `
 	quietly	rename `var' E0_`var'
 	quietly	rename TEMP_`var' `var'
 	}
-	preserve
-	keep if e(sample)	
+cap _crcslbl Y0_ `depvar'
 	local N_DF = e(Fdf2) -`DF_ADAPT' 
-	tempvar ui
-    gen `ui' = `depvar'*exp(- xb_hat - `phi_hat')
-	matrix beta_final = e(b)
-	quietly sum [`weight'`exp'] if e(sample)
-	tempname nobs
-	scalar `nobs' = r(N)
 	* Calcul de Sigma_0, de I-W, et de Sigma_tild
+	matrix beta_final = e(b) // 	mata: st_matrix("beta_final", beta_new)
 	matrix Sigma = e(V)
-	*tempname cste
-	*gen `cste' = 1
-	tempvar ui_bis
-	gen `ui_bis' = 1 - `delta'/(`delta' + `ui')
-	local var_list E0_* M0_*  // `cste'
-	local instr_list  Z0_*  M0_* // `cste'
-	mata : X=.
-	mata : Z=.
-	mata : IW=.
-	mata : st_view(X,.,"`var_list'")
-	mata : st_view(Z,.,"`instr_list'")
-	mata : st_view(IW,.,"`ui_bis'")
-	mata : W = (cross(X,Z)*invsym(cross(Z,Z))*cross(Z,X))
 	mata : Sigma_hat = st_matrix("Sigma")
-	mata : Sigma_0 = W*Sigma_hat*W
-	mata : invXpPzIWX = invsym(0.5*cross(X,Z)*invsym(cross(Z,Z))*(Z':*IW')*X+ 0.5*X'*(IW:*Z)*invsym(cross(Z,Z))*cross(Z,X))
+	mata : Sigma_0 = (cross(PX,PZ)*invsym(cross(PZ,PZ))*cross(PZ,PX))*Sigma_hat*(cross(PX,PZ)*invsym(cross(PZ,PZ))*cross(PZ,PX)) // recover original HAC 
+	mata : invXpPzIWX = invsym(0.5*cross(PX,PZ)*invsym(cross(PZ,PZ))*cross(PZ,ui,PX)+ 0.5*cross(PX,ui,PZ)*invsym(cross(PZ,PZ))*cross(PZ,PX))
 	mata : Sigma_tild = invXpPzIWX*Sigma_0*invXpPzIWX
-	
-	/* Does not work with large sample 
-	mata : IW = diag(IW) // preparation 
-	mata : Pz = Z*invsym(Z'*Z)*Z'
-	mata : Sigma_hat = st_matrix("Sigma") // retrouver la matrice de ivreg2
-	mata : Sigma_0 = (X'*Pz*X)*Sigma_hat*(X'*Pz*X)
-	mata : invXpPzIWX = invsym(0.5*X'*(Pz*IW+IW*Pz)*X)
-	*/
-	
-	mata: st_matrix("Sigma_tild", Sigma_tild) // used in practice
+    mata: st_matrix("Sigma_tild", Sigma_tild) // used in practice
    	matrix Sigma_tild = Sigma_tild*(`e(Fdf2))')/(`N_DF') // adjust DOF
 	*** Stocker les rÃ©sultats dans une matrice
 	local names : colnames e(b)
