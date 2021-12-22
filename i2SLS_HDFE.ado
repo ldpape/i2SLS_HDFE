@@ -133,6 +133,7 @@ program define i2SLS_HDFE, eclass
 	quietly	rename `var' TEMP_`var'
 	quietly	rename E0_`var' `var'
 	}
+cap _crcslbl Y0_ `depvar' // label Y0 correctly
 quietly ivreg2 Y0_ `indepvar' (`endog' = `instr') [`weight'`exp'] , `option' noconstant   // standard case with X and FE 
 if "`indepvar'"=="" {
 quietly ivreg2 Y0_ `indepvar' (`endog' = `instr') [`weight'`exp'] , `option' noconstant   // case with no X , only FE 
@@ -149,7 +150,6 @@ quietly ivreg2 Y0_ `indepvar' (`endog' = `instr') [`weight'`exp'] , `option' noc
 	quietly	rename `var' E0_`var'
 	quietly	rename TEMP_`var' `var'
 	}
-cap _crcslbl Y0_ `depvar'
 	local N_DF = e(Fdf2) -`DF_ADAPT' 
 	* Calcul de Sigma_0, de I-W, et de Sigma_tild
 	matrix beta_final = e(b) // 	mata: st_matrix("beta_final", beta_new)
