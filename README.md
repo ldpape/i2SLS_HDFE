@@ -8,4 +8,7 @@ To install this code into Stata, run the following (requires at least Stata 14) 
 
 You will need to have the following packages installed using:
 >ssc install reghdfe
+
+>ssc install hdfe
+
 >ssc install ivreg2
