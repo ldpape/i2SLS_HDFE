@@ -218,6 +218,7 @@ ereturn scalar widstat = e(widstat)
 ereturn scalar arf = e(arf)
 ereturn local cmd "i2SLS_HDFE"
 ereturn local vcetype `option'
+di in gr _col(55) "Number of obs = " in ye %8.0f e(N)
 ereturn display
 
 * drop 
