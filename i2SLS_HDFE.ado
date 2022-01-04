@@ -1,3 +1,10 @@
+* 15/12/2021 : corrected "cross" in S.E. which is complicated by the symmetrization
+* 15/12/2021 : corrected iteration logical specification
+* 16/12/2021 : corrected absorb from varlist to string, as in ppmlhdfe
+* 22/12/2021 : coded with matrix multiplication instead of pre-canned program
+* 22/12/2021 : added convergence control (limit and maximum)
+* 04/01/2022 : added constant + checks for convergence + corrected problem with collinear variables affecting final 2SLS
+cap program drop i2SLS_HDFE
 program define i2SLS_HDFE, eclass
 	syntax [anything] [if] [in] [aweight pweight fweight iweight]  [, DELta(real 1) ABSorb(varlist) LIMit(real 0.00001) MAXimum(real 1000) Robust CLuster(varlist numeric) ]
 		marksample touse
@@ -36,6 +43,7 @@ program define i2SLS_HDFE, eclass
     _rmcoll `indepvar', forcedrop 
 	local var_list `endog' `r(varlist)' 
 	local instr_list `instr' `r(varlist)'
+	local alt_varlist `r(varlist)'
 	*** FWL Theorem Application
 	cap drop Z0_*
 	cap drop E0_*
@@ -88,8 +96,12 @@ program define i2SLS_HDFE, eclass
 	* prepare  future inversions 
 	mata : invPzX = invsym(cross(PX,PZ)*invsym(cross(PZ,PZ))*cross(PZ,PX))*cross(PX,PZ)*invsym(cross(PZ,PZ))
 	mata : beta_initial = invPzX*cross(PZ,Py_tilde)
-	local k = 0
+	mata : beta_t_1 = beta_initial // needed to initialize
+	mata : beta_t_2 = beta_initial // needed to initialize
+	mata : q_hat_m0 = 0
+	local k = 1
 	local eps = 1000	
+	mata: q_hat = J(`maximum', 1, .)
 	*** Iterations iOLS
 	_dots 0
 	while ((`k' < `maximum') & (`eps' > `limit' )) {
@@ -97,9 +109,10 @@ program define i2SLS_HDFE, eclass
 	mata: xb_hat_N = X*beta_initial
 	mata: fe = y_tilde - Py_tilde + xb_hat_M - xb_hat_N
 	mata: xb_hat = xb_hat_N + fe		
-		* Update d'un nouveau y_tild et regression avec le nouvel y_tild
-	mata: y_tilde = log(y + `delta'*exp(xb_hat)) :-mean(log(y + `delta'*exp(xb_hat))- xb_hat)
-		* Update d'un nouveau y_tild et regression avec le nouvel y_tild
+		* update du alpha
+	mata: alpha = log(mean(y:*exp(-xb_hat)))
+	mata: y_tilde = log(y + `delta'*exp(xb_hat :+ alpha )) :-mean(log(y + `delta'*exp(xb_hat :+ alpha)) -xb_hat :- alpha  )
+		* regression avec le nouvel y_tild
 	cap drop `y_tild' 
 	quietly mata: st_addvar("double", "`y_tild'")
 	mata: st_store(.,"`y_tild'",y_tilde)
@@ -111,17 +124,48 @@ program define i2SLS_HDFE, eclass
 	mata: criteria = mean(abs(beta_initial - beta_new):^(2))
 	mata: st_numscalar("eps", criteria)
 	mata: st_local("eps", strofreal(criteria))
+		* safeguard for convergence.
+	if `k'==`maximum'{
+		  di "There has been no convergence so far: increase the number of iterations."  
+	}
+	if `k'>4{
+	mata: q_hat[`k',1] = mean(log( abs(beta_new-beta_initial):/abs(beta_initial-beta_t_2)):/log(abs(beta_initial-beta_t_2):/abs(beta_t_2-beta_t_3)))	
+	mata: check_3 = abs(mean(q_hat)-1)
+		if mod(`k'-4,50)==0{
+    mata: q_hat_m =  mm_median(q_hat[((`k'-49)..`k'),.] ,1)
+	mata: check_1 = abs(q_hat_m - q_hat_m0)
+	mata: check_2 = abs(q_hat_m-1)
+	mata: st_numscalar("check_1", check_1)
+	mata: st_local("check_1", strofreal(check_1))
+	mata: st_numscalar("check_2", check_2)
+	mata: st_local("check_2", strofreal(check_2))
+	mata: st_numscalar("check_3", check_3)
+	mata: st_local("check_3", strofreal(check_3))
+	mata: q_hat_m0 = q_hat_m
+		if ((`check_1'<1e-4)&(`check_2'>1e-2)) {
+di "delta is too small to achieve convergence -- update to larger value"
+	local k = `maximum'
+		}
+		if ((`check_3'>0.5) & (`k'>500)) {
+	local k = `maximum'
+di "q_hat too far from 1"
+		}
+					  }
+	}
+	if `k'>2 { // keep in memory the previous beta_hat for q_hat 
+	mata:   beta_t_3 = beta_t_2
+	mata:   beta_t_2 = beta_initial
+	}
 	mata: beta_initial = beta_new
 	local k = `k'+1
 	_dots `k' 0
 	}
-
 	*** Calcul de la bonne matrice de variance-covariance
 	* Calcul du "bon" residu
 	mata: ui = y:*exp(-xb_hat)
 	mata: ui = ui:/(`delta' :+ ui)
 	* Final 2SLS with ivreg2 
-		foreach var in `indepvar' {     // rename variables for last ols
+		foreach var in `alt_varlist' {     // rename variables for last ols
 	quietly	rename `var' TEMP_`var'
 	quietly	rename M0_`var' `var'
 	}	
@@ -134,11 +178,11 @@ program define i2SLS_HDFE, eclass
 	quietly	rename E0_`var' `var'
 	}
 cap _crcslbl Y0_ `depvar' // label Y0 correctly
-quietly ivreg2 Y0_ `indepvar' (`endog' = `instr') [`weight'`exp'] , `option' noconstant   // standard case with X and FE 
+quietly ivreg2 Y0_ `alt_varlist' (`endog' = `instr') [`weight'`exp'] , `option' noconstant   // standard case with X and FE 
 if "`indepvar'"=="" {
-quietly ivreg2 Y0_ `indepvar' (`endog' = `instr') [`weight'`exp'] , `option' noconstant   // case with no X , only FE 
+quietly ivreg2 Y0_ `alt_varlist' (`endog' = `instr') [`weight'`exp'] , `option' noconstant   // case with no X , only FE 
 }
-	foreach var in `indepvar' {      // rename variables back
+	foreach var in `alt_varlist' {      // rename variables back
 	quietly	rename `var' M0_`var'
 	quietly	rename TEMP_`var' `var'
 	}
