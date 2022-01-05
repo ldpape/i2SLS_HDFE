@@ -209,7 +209,7 @@ quietly ivreg2 Y0_ `alt_varlist' (`endog' = `instr') [`weight'`exp'] , `option' 
 	local nbvar : word count `names'
 	mat rownames Sigma_tild = `names' 
     mat colnames Sigma_tild = `names' 
-    ereturn post beta_final Sigma_tild , obs(`=r(N)') depname(`depvar') esample(`touse')  dof(`N_DF') 
+    ereturn post beta_final Sigma_tild , obs(`=e(N)') depname(`depvar') esample(`touse')  dof(`N_DF') 
 	restore 
 ereturn scalar delta = `delta'
 ereturn  scalar eps =   `eps'
