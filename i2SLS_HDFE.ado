@@ -4,7 +4,8 @@
 * 22/12/2021 : coded with matrix multiplication instead of pre-canned program
 * 22/12/2021 : added convergence control (limit and maximum)
 * 04/01/2022 : added constant + checks for convergence + corrected problem with collinear variables affecting final 2SLS
-* 21/01/2022 : added symmetrization + check for singleton / existence using PPML + correction S.E.
+* 21/01/2022 : added symmetrization + check for singleton / existence using PPML + correction S.E. + syntax change
+* 22/01/2022 : apparently, new syntax does not drop missing obs.
 
 cap program drop i2SLS_HDFE
 program define i2SLS_HDFE, eclass
@@ -29,10 +30,15 @@ syntax varlist [if] [in] [aweight pweight fweight iweight] [, DELta(real 1) ABSo
 	local list_var `varlist'
 	gettoken depvar list_var : list_var
 	gettoken _rhs list_var : list_var, p("(")	
+
 	
 *** check seperation : code from "ppml"
  tempvar zeros                            																						// Creates regressand for first step
  quietly: gen `zeros'=1 	
+ 
+foreach var of varlist  `_rhs' `endog' `instr'{
+drop if missing(`var')	
+}
 foreach var of varlist `absorb'{
 tempvar group 
 egen `group' = group(`var')
@@ -87,10 +93,12 @@ quietly keep if `touse'
 	** drop collinear variables
 	tempvar cste
 	gen `cste' = 1
-    _rmcoll `indepvar' , forcedrop 
-	local var_list `endog' `r(varlist)' 
-	local instr_list `instr' `r(varlist)' 
+    _rmcoll `indepvar' `endog'  , forcedrop 
+if r(k_omitted) >0 di 
 	local alt_varlist `r(varlist)'
+	local alt_varlist: list alt_varlist- endog
+	local var_list `endog' `alt_varlist' 
+	local instr_list `instr' `alt_varlist' 
 	*** FWL Theorem Application
 	cap drop Z0_*
 	cap drop E0_*
@@ -99,8 +107,6 @@ quietly keep if `touse'
 	cap drop xb_hat*
 	if "`indepvar'"=="" { // case with no X , only FE 
 	quietly hdfe `endog' [`weight'] , absorb(`absorb') generate(E0_)
-	tempname DF_ADAPT
-	scalar `DF_ADAPT' = e(df_a) //- e(N_hdfe)
 	quietly hdfe `instr' [`weight'] , absorb(`absorb') generate(Z0_)
 	tempvar y_tild  
 	quietly gen `y_tild' = log(`depvar' + 1)
@@ -119,12 +125,13 @@ quietly keep if `touse'
 	mata : st_view(y,.,"`depvar'")	
 	}
 	else { // standard case with both X and FE
-	quietly hdfe `r(varlist)' [`weight'] , absorb(`absorb') generate(M0_)
+	quietly hdfe `alt_varlist' [`weight'] , absorb(`absorb') generate(M0_)
 	quietly hdfe `endog'  [`weight'] , absorb(`absorb') generate(E0_)
 	quietly hdfe `instr'  [`weight'] , absorb(`absorb') generate(Z0_)
 	tempvar y_tild  
 	quietly gen `y_tild' = log(`depvar' + 1)
 	quietly	hdfe `y_tild' [`weight'] , absorb(`absorb') generate(Y0_) 
+	local dof_hdfe = e(df_a)
 	mata : X=.
 	mata : PX=.
 	mata : PZ=.
@@ -253,7 +260,9 @@ quietly ivreg2 Y0_ `alt_varlist' (`endog' = `instr') [`weight'`exp'] , `option' 
 	local nbvar : word count `names'
 	mat rownames Sigma_tild = `names' 
     mat colnames Sigma_tild = `names' 
-    ereturn post beta_final Sigma_tild , obs(`=e(N)') depname(`depvar') esample(`touse')  dof(`=e(df r)')
+	local dof_final = e(df r)- `dof_hdfe'
+	di "`dof_final'"
+    ereturn post beta_final Sigma_tild , obs(`=e(N)') depname(`depvar') esample(`touse')  dof(`dof_final')
 	restore 
 ereturn scalar delta = `delta'
 ereturn  scalar eps =   `eps'
