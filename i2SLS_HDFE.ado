@@ -37,7 +37,7 @@ syntax varlist [if] [in] [aweight pweight fweight iweight] [, DELta(real 1) ABSo
  quietly: gen `zeros'=1 	
  
 foreach var of varlist  `_rhs' `endog' `instr'{
-drop if missing(`var')	
+quietly drop if missing(`var')	
 }
 foreach var of varlist `absorb'{
 tempvar group 
