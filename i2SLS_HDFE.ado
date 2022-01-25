@@ -10,7 +10,7 @@
 cap program drop i2SLS_HDFE
 program define i2SLS_HDFE, eclass
 
-syntax varlist [if] [in] [aweight pweight fweight iweight] [, DELta(real 1) ABSorb(varlist) LIMit(real 0.00001) ENDog(varlist) INSTR(varlist) MAXimum(real 1000) Robust CLuster(string)]           
+syntax varlist [if] [in] [aweight pweight fweight iweight] [, DELta(real 1) ABSorb(varlist) LIMit(real 1e-8)  MAXimum(real 10000) ENDog(varlist) INSTR(varlist)  Robust CLuster(string)]           
          
 
 
