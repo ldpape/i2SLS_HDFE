@@ -54,17 +54,22 @@ cap drop `group'
  tempvar logy                            																						// Creates regressand 
  quietly: gen `logy'=log(`depvar') if (`touse')&(`depvar'>0)
  quietly: reghdfe `logy' `_rhs' `endog'   if (`touse')&(`depvar'>0)	, absorb(`absorb')
+ local count: word count `_rhs'
+ scalar count = `count'
+ scalar nb = 0
 // quietly: replace `touse' = 0 if (e(sample)==0) & (`touse')&(`depvar'>0)
 // Initialize observations selector
  local _drop ""                                                                                                // List of regressors to exclude
  local indepvar ""     
     foreach x of varlist `_rhs' `endog' {   
+				scalar nb = nb+1
+
       if (_se[`x']==0) {                                                                                       // Try to include regressors dropped in the
           qui summarize `x' if (`depvar'>0)&(`touse'), meanonly
           local _mean=r(mean)
           qui summarize `x' if (`depvar'==0)&(`touse')
           if (r(min)<`_mean')&(r(max)>`_mean'){                                            // Include regressor if conditions met and
-          		  if (`x'!=`endog'){
+          		  if (nb<= count){
               local indepvar "`indepvar' `x'"     
 		  }                                                                       // strict is off 
           }
@@ -76,7 +81,7 @@ cap drop `group'
               local _drop "`_drop' `x'"
           }
       }                                                                                                        // End of LOOP 1.1 
-      if (_se[`x']>0)&(`x'!=`endog') {                                                           // Include safe regressors: LOOP 1.2
+      if (_se[`x']>0)&(nb<= count) {                                                           // Include safe regressors: LOOP 1.2
       local indepvar "`indepvar' `x'" 
       }                                                                                                        // End LOOP 1.2
     }   
@@ -95,7 +100,7 @@ quietly keep if `touse'
 	** drop collinear variables
 	tempvar cste
 	gen `cste' = 1
-    _rmcoll `indepvar' `endog'  , forcedrop 
+    _rmcoll `indepvar' `endog' `cste' , forcedrop 
 if r(k_omitted) >0 di 
 	local alt_varlist `r(varlist)'
 	local alt_varlist: list alt_varlist- endog
@@ -111,8 +116,9 @@ if r(k_omitted) >0 di
 	quietly hdfe `endog' [`weight'] , absorb(`absorb') generate(E0_)
 	quietly hdfe `instr' [`weight'] , absorb(`absorb') generate(Z0_)
 	tempvar y_tild  
-	quietly gen `y_tild' = log(`depvar' + 1)
+	quietly gen `y_tild' = log(`depvar' + `delta')
 	quietly	hdfe `y_tild' [`weight'] , absorb(`absorb') generate(Y0_) 
+	local df_a = e(df_a)
 	mata : X=.
 	mata : PX=.
 	mata : PZ=.
@@ -131,8 +137,10 @@ if r(k_omitted) >0 di
 	quietly hdfe `endog'  [`weight'] , absorb(`absorb') generate(E0_)
 	quietly hdfe `instr'  [`weight'] , absorb(`absorb') generate(Z0_)
 	tempvar y_tild  
-	quietly gen `y_tild' = log(`depvar' + 1)
+	quietly gen `y_tild' = log(`depvar' + `delta')
 	quietly	hdfe `y_tild' [`weight'] , absorb(`absorb') generate(Y0_) 
+	local df_a = e(df_a)
+
 	local dof_hdfe = e(df_a)
 	mata : X=.
 	mata : PX=.
@@ -216,8 +224,8 @@ di "q_hat too far from 1"
 	}
 	*** Calcul de la bonne matrice de variance-covariance
 	* Calcul du "bon" residu
-	mata: ui = y:*exp(-xb_hat)
-	mata: ui = ui:/(`delta' :+ ui)
+	mata: ui = y:*exp(-xb_hat :- alpha)
+	mata: weight = ui:/(`delta' :+ ui)
 	* Final 2SLS with ivreg2 
 		foreach var in `alt_varlist' {     // rename variables for last ols
 	quietly	rename `var' TEMP_`var'
@@ -232,10 +240,11 @@ di "q_hat too far from 1"
 	quietly	rename E0_`var' `var'
 	}
 cap _crcslbl Y0_ `depvar' // label Y0 correctly
-quietly ivreg2 Y0_ `alt_varlist' (`endog' = `instr') [`weight'`exp'] , `option' noconstant   // standard case with X and FE 
+quietly: ivreg2 Y0_ `alt_varlist' (`endog' = `instr') [`weight'`exp'] , `option' noconstant   // standard case with X and FE 
 if "`indepvar'"=="" {
-quietly ivreg2 Y0_ `alt_varlist' (`endog' = `instr') [`weight'`exp'] , `option' noconstant   // case with no X , only FE 
+quietly: ivreg2 Y0_ `alt_varlist' (`endog' = `instr') [`weight'`exp'] , `option' noconstant   // case with no X , only FE 
 }
+local df_r = e(Fdf2) - `df_a'
 	foreach var in `alt_varlist' {      // rename variables back
 	quietly	rename `var' M0_`var'
 	quietly	rename TEMP_`var' `var'
@@ -250,10 +259,10 @@ quietly ivreg2 Y0_ `alt_varlist' (`endog' = `instr') [`weight'`exp'] , `option' 
 	}
 	* Calcul de Sigma_0, de I-W, et de Sigma_tild
 	matrix beta_final = e(b) // 	mata: st_matrix("beta_final", beta_new)
-	matrix Sigma = e(V)
+	matrix Sigma = (e(Fdf2) / `df_r')*e(V)
 	mata : Sigma_hat = st_matrix("Sigma")
 	mata : Sigma_0 = (cross(PX,PZ)*invsym(cross(PZ,PZ))*cross(PZ,PX):/rows(X))*Sigma_hat*(cross(PX,PZ)*invsym(cross(PZ,PZ))*cross(PZ,PX):/rows(X)) // recover original HAC 
-	mata : invXpPzIWX = invsym(0.5:/rows(X)*cross(PX,PZ)*invsym(cross(PZ,PZ))*cross(PZ,ui,PX)+ 0.5:/rows(X)*cross(PX,ui,PZ)*invsym(cross(PZ,PZ))*cross(PZ,PX))
+	mata : invXpPzIWX = invsym(0.5:/rows(X)*cross(PX,PZ)*invsym(cross(PZ,PZ))*cross(PZ,weight,PX)+ 0.5:/rows(X)*cross(PX,weight,PZ)*invsym(cross(PZ,PZ))*cross(PZ,PX))
 	mata : Sigma_tild = invXpPzIWX*Sigma_0*invXpPzIWX
 	mata : Sigma_tild = (Sigma_tild+Sigma_tild'):/2 
     mata: st_matrix("Sigma_tild", Sigma_tild) // used in practice
@@ -264,7 +273,7 @@ quietly ivreg2 Y0_ `alt_varlist' (`endog' = `instr') [`weight'`exp'] , `option' 
     mat colnames Sigma_tild = `names' 
 	local dof_final = e(df r)- `dof_hdfe'
 	di "`dof_final'"
-    ereturn post beta_final Sigma_tild , obs(`=e(N)') depname(`depvar') esample(`touse')  dof(`dof_final')
+    ereturn post beta_final Sigma_tild , obs(`=e(N)') depname(`depvar') esample(`touse')  dof(`df_r')
 	restore 
 ereturn scalar delta = `delta'
 ereturn  scalar eps =   `eps'
