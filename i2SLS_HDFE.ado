@@ -10,14 +10,11 @@
 cap program drop i2SLS_HDFE
 program define i2SLS_HDFE, eclass
 
-syntax varlist [if] [in] [aweight pweight fweight iweight] [, DELta(real 1) ABSorb(varlist) LIMit(real 1e-8)  MAXimum(real 10000) ENDog(varlist) INSTR(varlist)  Robust CLuster(string)]           
-         
-
+syntax varlist [if] [in] [aweight pweight fweight iweight] [, DELta(real 1) ABSorb(varlist) LIMit(real 1e-8)  MAXimum(real 10000) ENDog(varlist) INSTR(varlist)  Robust CLuster(string)]              
 
 //	syntax [anything] [if] [in] [aweight pweight fweight iweight]  [, DELta(real 1) ABSorb(varlist) LIMit(real 0.00001) MAXimum(real 1000) Robust CLuster(varlist numeric) ]
 	marksample touse
 	markout `touse'  `cluster', s     
-	preserve 
 	quietly keep if `touse'
 	if  "`robust'" !="" {
 		local opt1  = "`robust' "
@@ -30,24 +27,21 @@ syntax varlist [if] [in] [aweight pweight fweight iweight] [, DELta(real 1) ABSo
 	local list_var `varlist'
 	gettoken depvar list_var : list_var
 	gettoken _rhs list_var : list_var, p("(")	
-foreach var of varlist  `_rhs' `endog' `instr'{
-quietly drop if missing(`var')	
+foreach var of varlist `depvar' `_rhs' `endog' `instr'{
+quietly  replace `touse' = 0 if missing(`var')	
 }
 	
 *** check seperation : code from "ppml"
  tempvar zeros                            																						// Creates regressand for first step
  quietly: gen `zeros'=1 	
  
-foreach var of varlist  `_rhs' `endog' `instr'{
-quietly drop if missing(`var')	
-}
 foreach var of varlist `absorb'{
 tempvar group 
 egen `group' = group(`var')
 tempvar max_group 
-bys `group' : egen `max_group' = max(`depvar') if `touse'
+quietly bys `group' : egen `max_group' = max(`depvar') if `touse'
 tempvar min_group 
-bys `group' : egen `min_group' = min(`depvar') if `touse'
+quietly bys `group' : egen `min_group' = min(`depvar') if `touse'
 quietly: replace `zeros' = 0 if `min_group' == 0  & `max_group' == 0 & `touse'
 cap drop `group'
 }
@@ -96,11 +90,10 @@ cap drop `group'
  local _enne = `_enne' - r(sum)                                                                                // Number of observations dropped
  di in green "Number of observations excluded: `_enne'" 
  local _enne =  r(sum)
-quietly keep if `touse'	
 	** drop collinear variables
 	tempvar cste
 	gen `cste' = 1
-    _rmcoll `indepvar' `endog' `cste' , forcedrop 
+    _rmcoll `indepvar' `endog' `cste' if `touse' , forcedrop 
 if r(k_omitted) >0 di 
 	local alt_varlist `r(varlist)'
 	local alt_varlist: list alt_varlist- endog
@@ -113,11 +106,11 @@ if r(k_omitted) >0 di
 	cap drop Y0_*
 	cap drop xb_hat*
 	if "`indepvar'"=="" { // case with no X , only FE 
-	quietly hdfe `endog' [`weight'] , absorb(`absorb') generate(E0_)
-	quietly hdfe `instr' [`weight'] , absorb(`absorb') generate(Z0_)
+	quietly hdfe `endog' if `touse' [`weight'] , absorb(`absorb') generate(E0_)
+	quietly hdfe `instr' if `touse' [`weight'] , absorb(`absorb') generate(Z0_)
 	tempvar y_tild  
-	quietly gen `y_tild' = log(`depvar' + `delta')
-	quietly	hdfe `y_tild' [`weight'] , absorb(`absorb') generate(Y0_) 
+	quietly gen `y_tild' = log(`depvar' + `delta') if `touse'
+	quietly	hdfe `y_tild'  if `touse' [`weight'] , absorb(`absorb') generate(Y0_) 
 	local df_a = e(df_a)
 	mata : X=.
 	mata : PX=.
@@ -125,20 +118,20 @@ if r(k_omitted) >0 di
 	mata : y_tilde =.
 	mata : Py_tilde =.
 	mata : y =.
-	mata : st_view(X,.,"`endog'")
-	mata : st_view(PX,.,"E0_*")
-	mata : st_view(PZ,.,"Z0_*")
-	mata : st_view(y_tilde,.,"`y_tild'")
-	mata : st_view(Py_tilde,.,"Y0_")
-	mata : st_view(y,.,"`depvar'")	
+	mata : st_view(X,.,"`endog'","`touse'")
+	mata : st_view(PX,.,"E0_*","`touse'")
+	mata : st_view(PZ,.,"Z0_*","`touse'")
+	mata : st_view(y_tilde,.,"`y_tild'","`touse'")
+	mata : st_view(Py_tilde,.,"Y0_","`touse'")
+	mata : st_view(y,.,"`depvar'","`touse'")	
 	}
 	else { // standard case with both X and FE
-	quietly hdfe `alt_varlist' [`weight'] , absorb(`absorb') generate(M0_)
-	quietly hdfe `endog'  [`weight'] , absorb(`absorb') generate(E0_)
-	quietly hdfe `instr'  [`weight'] , absorb(`absorb') generate(Z0_)
+	quietly hdfe `alt_varlist'  if `touse'  [`weight'] , absorb(`absorb') generate(M0_)
+	quietly hdfe `endog'  if `touse'  [`weight'] , absorb(`absorb') generate(E0_)
+	quietly hdfe `instr'  if `touse'  [`weight'] , absorb(`absorb') generate(Z0_)
 	tempvar y_tild  
-	quietly gen `y_tild' = log(`depvar' + `delta')
-	quietly	hdfe `y_tild' [`weight'] , absorb(`absorb') generate(Y0_) 
+	quietly gen `y_tild' = log(`depvar' + `delta') if `touse'
+	quietly	hdfe `y_tild'  if `touse'  [`weight'] , absorb(`absorb') generate(Y0_) 
 	local df_a = e(df_a)
 
 	local dof_hdfe = e(df_a)
@@ -148,12 +141,12 @@ if r(k_omitted) >0 di
 	mata : y_tilde =.
 	mata : Py_tilde =.
 	mata : y =.
-	mata : st_view(X,.,"`var_list'")
-	mata : st_view(PX,.,"E0_* M0_*")
-	mata : st_view(PZ,.,"Z0_* M0_*")
-	mata : st_view(y_tilde,.,"`y_tild'")
-	mata : st_view(Py_tilde,.,"Y0_")
-	mata : st_view(y,.,"`depvar'")	
+	mata : st_view(X,.,"`var_list'","`touse'")
+	mata : st_view(PX,.,"E0_* M0_*","`touse'")
+	mata : st_view(PZ,.,"Z0_* M0_*","`touse'")
+	mata : st_view(y_tilde,.,"`y_tild'","`touse'")
+	mata : st_view(Py_tilde,.,"Y0_","`touse'")
+	mata : st_view(y,.,"`depvar'","`touse'")	
 	}
 	* prepare  future inversions 
 	mata : invPzX = invsym(cross(PX,PZ)*invsym(cross(PZ,PZ))*cross(PZ,PX))*cross(PX,PZ)*invsym(cross(PZ,PZ))
@@ -176,11 +169,10 @@ if r(k_omitted) >0 di
 	mata: y_tilde = log(y + `delta'*exp(xb_hat :+ alpha )) :-mean(log(y + `delta'*exp(xb_hat :+ alpha)) -xb_hat :- alpha  )
 		* regression avec le nouvel y_tild
 	cap drop `y_tild' 
-	quietly mata: st_addvar("double", "`y_tild'")
-	mata: st_store(.,"`y_tild'",y_tilde)
+	mata: st_store(., st_addvar("double", "`y_tild'"), "`touse'", y_tilde)
 	cap drop Y0_
-    quietly hdfe `y_tild' [`weight'] , absorb(`absorb') generate(Y0_)
-	mata : st_view(Py_tilde,.,"Y0_")
+    quietly hdfe `y_tild' if `touse' [`weight'] , absorb(`absorb') generate(Y0_)
+	mata : st_view(Py_tilde,.,"Y0_","`touse'")
 		* 2SLS 
 	mata : beta_new = invPzX*cross(PZ,Py_tilde)
 	mata: criteria = mean(abs(beta_initial - beta_new):^(2))
@@ -240,9 +232,9 @@ di "q_hat too far from 1"
 	quietly	rename E0_`var' `var'
 	}
 cap _crcslbl Y0_ `depvar' // label Y0 correctly
-quietly: ivreg2 Y0_ `alt_varlist' (`endog' = `instr') [`weight'`exp'] , `option' noconstant   // standard case with X and FE 
+quietly: ivreg2 Y0_ `alt_varlist' (`endog' = `instr') [`weight'`exp'] if `touse' , `option' noconstant   // standard case with X and FE 
 if "`indepvar'"=="" {
-quietly: ivreg2 Y0_ `alt_varlist' (`endog' = `instr') [`weight'`exp'] , `option' noconstant   // case with no X , only FE 
+quietly: ivreg2 Y0_ `alt_varlist' (`endog' = `instr') [`weight'`exp'] if `touse'  , `option' noconstant   // case with no X , only FE 
 }
 local df_r = e(Fdf2) - `df_a'
 	foreach var in `alt_varlist' {      // rename variables back
@@ -261,21 +253,28 @@ local df_r = e(Fdf2) - `df_a'
 	matrix beta_final = e(b) // 	mata: st_matrix("beta_final", beta_new)
 	matrix Sigma = (e(Fdf2) / `df_r')*e(V)
 	mata : Sigma_hat = st_matrix("Sigma")
-	mata : Sigma_0 = (cross(PX,PZ)*invsym(cross(PZ,PZ))*cross(PZ,PX):/rows(X))*Sigma_hat*(cross(PX,PZ)*invsym(cross(PZ,PZ))*cross(PZ,PX):/rows(X)) // recover original HAC 
-	mata : invXpPzIWX = invsym(0.5:/rows(X)*cross(PX,PZ)*invsym(cross(PZ,PZ))*cross(PZ,weight,PX)+ 0.5:/rows(X)*cross(PX,weight,PZ)*invsym(cross(PZ,PZ))*cross(PZ,PX))
+	mata : Sigma_0 = (cross(PX,PZ)*invsym(cross(PZ,PZ))*cross(PZ,PX):/rows(PX))*Sigma_hat*(cross(PX,PZ)*invsym(cross(PZ,PZ))*cross(PZ,PX):/rows(PX)) // recover original HAC 
+	mata : invXpPzIWX = invsym(0.5:/rows(PX)*cross(PX,PZ)*invsym(cross(PZ,PZ))*cross(PZ,weight,PX)+ 0.5:/rows(PX)*cross(PX,weight,PZ)*invsym(cross(PZ,PZ))*cross(PZ,PX))
 	mata : Sigma_tild = invXpPzIWX*Sigma_0*invXpPzIWX
 	mata : Sigma_tild = (Sigma_tild+Sigma_tild'):/2 
     mata: st_matrix("Sigma_tild", Sigma_tild) // used in practice
 	*** Stocker les rÃ©sultats dans une matrice
-	local names : colnames e(b)
+	local names : colnames beta_final
 	local nbvar : word count `names'
 	mat rownames Sigma_tild = `names' 
     mat colnames Sigma_tild = `names' 
 	local dof_final = e(df r)- `dof_hdfe'
-	di "`dof_final'"
+			cap drop _COPY
+	quietly: gen _COPY = `touse'
     ereturn post beta_final Sigma_tild , obs(`=e(N)') depname(`depvar') esample(`touse')  dof(`df_r')
-	restore 
-ereturn scalar delta = `delta'
+	cap drop i2SLS_HDFE_xb_hat
+	cap drop i2SLS_HDFE_fe
+	cap drop i2SLS_HDFE_error
+		    mata: st_store(., st_addvar("double", "i2SLS_HDFE_fe"), "_COPY", fe)
+	    mata: st_store(., st_addvar("double", "i2SLS_HDFE_error"), "_COPY", ui)
+    	mata: st_store(., st_addvar("double", "i2SLS_HDFE_xb_hat"),"_COPY", xb_hat_N)
+		cap drop _COPY
+	ereturn scalar delta = `delta'
 ereturn  scalar eps =   `eps'
 ereturn  scalar niter =  `k'
 ereturn local cmd "i2SLS_HDFE"
