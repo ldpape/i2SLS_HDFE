@@ -6,7 +6,7 @@
 * 04/01/2022 : added constant + checks for convergence + corrected problem with collinear variables affecting final 2SLS
 * 21/01/2022 : added symmetrization + check for singleton / existence using PPML + correction S.E. + syntax change
 * 22/01/2022 : apparently, new syntax does not drop missing obs.
-
+*3/2/2022 : drop preserve + add singleton selection based on Correia, Zylkin and Guimaraes.
 cap program drop i2SLS_HDFE
 program define i2SLS_HDFE, eclass
 
@@ -32,68 +32,35 @@ quietly  replace `touse' = 0 if missing(`var')
 }
 	
 *** check seperation : code from "ppml"
- tempvar zeros                            																						// Creates regressand for first step
- quietly: gen `zeros'=1 	
- 
-foreach var of varlist `absorb'{
-tempvar group 
-egen `group' = group(`var')
-tempvar max_group 
-quietly bys `group' : egen `max_group' = max(`depvar') if `touse'
-tempvar min_group 
-quietly bys `group' : egen `min_group' = min(`depvar') if `touse'
-quietly: replace `zeros' = 0 if `min_group' == 0  & `max_group' == 0 & `touse'
-cap drop `group'
-}
- tempvar logy                            																						// Creates regressand 
- quietly: gen `logy'=log(`depvar') if (`touse')&(`depvar'>0)
- quietly: reghdfe `logy' `_rhs' `endog'   if (`touse')&(`depvar'>0)	, absorb(`absorb')
- local count: word count `_rhs'
- scalar count = `count'
- scalar nb = 0
-// quietly: replace `touse' = 0 if (e(sample)==0) & (`touse')&(`depvar'>0)
-// Initialize observations selector
- local _drop ""                                                                                                // List of regressors to exclude
- local indepvar ""     
-    foreach x of varlist `_rhs' `endog' {   
-				scalar nb = nb+1
+ loc tol = 1e-5
+tempvar u w xb e
+quietly: gen `u' =  !`depvar' if `touse'
+quietly: su `u'  if `touse', mean
+loc K = ceil(r(sum) / `tol' ^ 2)
+quietly: gen `w' = cond(`depvar', `K', 1)  if `touse'
+while 1 {
+	*qui reghdfe u [fw=w], absorb(id1 id2) resid(e)
+quietly:	reghdfe `u' `_rhs'  `endog'  [fw=`w']  if `touse' , absorb(`absorb') resid(`e')
+quietly:	predict double `xb'  if `touse', xbd
+quietly:	replace `xb' = 0 if (abs(`xb') < `tol')&(`touse')
 
-      if (_se[`x']==0) {                                                                                       // Try to include regressors dropped in the
-          qui summarize `x' if (`depvar'>0)&(`touse'), meanonly
-          local _mean=r(mean)
-          qui summarize `x' if (`depvar'==0)&(`touse')
-          if (r(min)<`_mean')&(r(max)>`_mean'){                                            // Include regressor if conditions met and
-          		  if (nb<= count){
-              local indepvar "`indepvar' `x'"     
-		  }                                                                       // strict is off 
-          }
-          else{
-              qui su `x' if `touse', d                                                                         // Otherwise, drop regressor
-              local _mad=r(p50)
-              qui inspect  `x'  if `touse'                                                                         
-              qui replace `zeros'=0 if (`x'!=`_mad')&(r(N_unique)==2)&(`touse')                                // Mark observations to drop
-              local _drop "`_drop' `x'"
-          }
-      }                                                                                                        // End of LOOP 1.1 
-      if (_se[`x']>0)&(nb<= count) {                                                           // Include safe regressors: LOOP 1.2
-      local indepvar "`indepvar' `x'" 
-      }                                                                                                        // End LOOP 1.2
-    }   
- qui su `touse' if `touse', mean                                                                               // Summarize touse to obtain N
- local _enne=r(sum)                                                                                            // Save N
- qui replace `touse'=0 if (`zeros'==0)&("`keep'"=="")&(`depvar'==0)&(`touse')                                  // Drop observations with perfect fit
- di                                                                                                              // if keep is off
- local k_excluded : word count `_drop'                                                                      // Number of variables causing perfect fit
- di in green "Number of non-absorbed regressors excluded to ensure that the estimates exist: `k_excluded'" 
- if ("`_drop'" != "") di "Excluded regressors: `_drop'"                                                        // List dropped variables if any
- qui su `touse' if `touse', mean
- local _enne = `_enne' - r(sum)                                                                                // Number of observations dropped
- di in green "Number of observations excluded: `_enne'" 
- local _enne =  r(sum)
+	* Stop once all predicted values become non-negative
+quietly:	 cou if (`xb' < 0) & (`touse')
+	if !r(N) {
+		continue, break
+	}
+
+quietly:	replace `u' = max(`xb', 0)  if `touse'
+quietly:	drop `xb' `w'
+}
+*quielty: gen is_sep = `xb' > 0
+quietly: replace `touse'  = (`xb' <= 0) // & (`touse')
+
+*quietly keep if `touse'	
 	** drop collinear variables
 	tempvar cste
 	gen `cste' = 1
-    _rmcoll `indepvar' `endog' `cste' if `touse' , forcedrop 
+    _rmcoll `_rhs' `endog' `cste' if `touse' , forcedrop 
 if r(k_omitted) >0 di 
 	local alt_varlist `r(varlist)'
 	local alt_varlist: list alt_varlist- endog
@@ -105,7 +72,7 @@ if r(k_omitted) >0 di
 	cap drop M0_*
 	cap drop Y0_*
 	cap drop xb_hat*
-	if "`indepvar'"=="" { // case with no X , only FE 
+	if "`alt_varlist'"=="" { // case with no X , only FE 
 	quietly hdfe `endog' if `touse' [`weight'] , absorb(`absorb') generate(E0_)
 	quietly hdfe `instr' if `touse' [`weight'] , absorb(`absorb') generate(Z0_)
 	tempvar y_tild  
@@ -127,6 +94,8 @@ if r(k_omitted) >0 di
 	}
 	else { // standard case with both X and FE
 	quietly hdfe `alt_varlist'  if `touse'  [`weight'] , absorb(`absorb') generate(M0_)
+	sum M0_*
+	di "hello"
 	quietly hdfe `endog'  if `touse'  [`weight'] , absorb(`absorb') generate(E0_)
 	quietly hdfe `instr'  if `touse'  [`weight'] , absorb(`absorb') generate(Z0_)
 	tempvar y_tild  
@@ -198,10 +167,10 @@ if r(k_omitted) >0 di
 	mata: q_hat_m0 = q_hat_m
 		if ((`check_1'<1e-4)&(`check_2'>1e-2)) {
 di "delta is too small to achieve convergence -- update to larger value"
-	local k = `maximum'
+*	local k = `maximum'
 		}
 		if ((`check_3'>0.5) & (`k'>500)) {
-	local k = `maximum'
+	*local k = `maximum'
 di "q_hat too far from 1"
 		}
 					  }
@@ -233,7 +202,7 @@ di "q_hat too far from 1"
 	}
 cap _crcslbl Y0_ `depvar' // label Y0 correctly
 quietly: ivreg2 Y0_ `alt_varlist' (`endog' = `instr') [`weight'`exp'] if `touse' , `option' noconstant   // standard case with X and FE 
-if "`indepvar'"=="" {
+if "`alt_varlist'"=="" {
 quietly: ivreg2 Y0_ `alt_varlist' (`endog' = `instr') [`weight'`exp'] if `touse'  , `option' noconstant   // case with no X , only FE 
 }
 local df_r = e(Fdf2) - `df_a'
