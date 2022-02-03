@@ -94,8 +94,6 @@ if r(k_omitted) >0 di
 	}
 	else { // standard case with both X and FE
 	quietly hdfe `alt_varlist'  if `touse'  [`weight'] , absorb(`absorb') generate(M0_)
-	sum M0_*
-	di "hello"
 	quietly hdfe `endog'  if `touse'  [`weight'] , absorb(`absorb') generate(E0_)
 	quietly hdfe `instr'  if `touse'  [`weight'] , absorb(`absorb') generate(Z0_)
 	tempvar y_tild  
